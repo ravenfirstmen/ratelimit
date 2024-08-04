@@ -3,52 +3,65 @@ package main
 import (
 	"context"
 	"flag"
+	log "github.com/sirupsen/logrus"
 	"os"
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/test/v3"
-
-	example "github.com/envoyproxy/ratelimit/examples/xds-sotw-config-server"
+	xdwconfig "github.com/envoyproxy/ratelimit/examples/xds-sotw-config-server"
 )
 
 var (
-	logger example.Logger
 	port   uint
 	nodeID string
 )
 
 func init() {
-	logger = example.Logger{}
-
-	flag.BoolVar(&logger.Debug, "debug", false, "Enable xDS server debug logging")
 	flag.UintVar(&port, "port", 18000, "xDS management server port")
 	flag.StringVar(&nodeID, "nodeID", "test-node-id", "Node ID")
+}
+
+func initLogger() *log.Logger {
+	logger := log.New()
+	logger.SetReportCaller(true)
+	logger.SetFormatter(&log.TextFormatter{})
+	logger.SetOutput(os.Stdout)
+	logger.SetLevel(log.DebugLevel)
+
+	return logger
 }
 
 func main() {
 	flag.Parse()
 
+	logger := initLogger().WithFields(log.Fields{
+		"nodeID": nodeID,
+		"port":   port,
+	})
+	logger.Info("Starting up...")
+	defer logger.Info("Ending up...")
+
 	// Create a cache
-	cache := cache.NewSnapshotCache(false, cache.IDHash{}, logger)
+	snapshotCache := cache.NewSnapshotCache(false, cache.IDHash{}, logger)
 
 	// Create the snapshot that we'll serve to Envoy
-	snapshot := example.GenerateSnapshot()
+	snapshot := xdwconfig.GenerateSnapshot()
 	if err := snapshot.Consistent(); err != nil {
 		logger.Errorf("Snapshot is inconsistent: %+v\n%+v", snapshot, err)
 		os.Exit(1)
 	}
 	logger.Debugf("Will serve snapshot %+v", snapshot)
 
+	ctx := context.Background()
+
 	// Add the snapshot to the cache
-	if err := cache.SetSnapshot(context.Background(), nodeID, snapshot); err != nil {
+	if err := snapshotCache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
 		logger.Errorf("Snapshot error %q for %+v", err, snapshot)
 		os.Exit(1)
 	}
 
 	// Run the xDS server
-	ctx := context.Background()
-	cb := &test.Callbacks{Debug: logger.Debug}
-	srv := server.NewServer(ctx, cache, cb)
-	example.RunServer(ctx, srv, port)
+	cb := xdwconfig.NewDebugCallback(logger)
+	srv := server.NewServer(ctx, snapshotCache, cb)
+	xdwconfig.RunServer(logger, srv, port)
 }

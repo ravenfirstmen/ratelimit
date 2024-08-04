@@ -1,4 +1,4 @@
-package example
+package xdsconfig
 
 import (
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
