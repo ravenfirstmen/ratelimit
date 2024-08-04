@@ -31,10 +31,10 @@ func initLogger() *log.Logger {
 	return logger
 }
 
-func main() {
+func run(l *log.Logger) int {
 	flag.Parse()
 
-	logger := initLogger().WithFields(log.Fields{
+	logger := l.WithFields(log.Fields{
 		"nodeID": nodeID,
 		"port":   port,
 	})
@@ -48,7 +48,7 @@ func main() {
 	snapshot := xdwconfig.GenerateSnapshot()
 	if err := snapshot.Consistent(); err != nil {
 		logger.Errorf("Snapshot is inconsistent: %+v\n%+v", snapshot, err)
-		os.Exit(1)
+		return 1
 	}
 	logger.Debugf("Will serve snapshot %+v", snapshot)
 
@@ -57,11 +57,17 @@ func main() {
 	// Add the snapshot to the cache
 	if err := snapshotCache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
 		logger.Errorf("Snapshot error %q for %+v", err, snapshot)
-		os.Exit(1)
+		return 1
 	}
 
 	// Run the xDS server
 	cb := xdwconfig.NewDebugCallback(logger)
 	srv := server.NewServer(ctx, snapshotCache, cb)
 	xdwconfig.RunServer(logger, srv, port)
+
+	return 0
+}
+
+func main() {
+	os.Exit(run(initLogger()))
 }
